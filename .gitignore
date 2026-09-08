@@ -1,0 +1,30 @@
+# Virtual environment
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+
+
+# ==========================
+# DATA
+# ==========================
+
+# Ignore raw datasets
+data/raw/**/*.csv
+data/raw/**/*.parquet
+data/raw/**/*.XPT
+data/raw/**/*.xpt
+data/raw/**/*.zip
+
+# Ignore intermediate/processed datasets
+data/processed/*
+
+# Keep only final train / validation / test CSV files
+!data/processed/train_ready.csv
+!data/processed/validation_ready.csv
+!data/processed/test_ready.csv
