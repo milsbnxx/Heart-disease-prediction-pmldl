@@ -1,0 +1,2 @@
+model,accuracy,precision,recall,f1,roc_auc,fit_and_validation_seconds,random_state,evaluated_split
+mlp,0.7489023132459113,0.23935833048905358,0.7729491418674225,0.36552494415487713,0.837560468464299,284.76890589999675,42,validation

@@ -1,0 +1,19 @@
+{
+  "batch_size": 512,
+  "best_epoch": 10,
+  "decision_threshold": 0.5,
+  "dropout": 0.3,
+  "early_stopping_patience": 7,
+  "hidden_layers": [
+    128,
+    64
+  ],
+  "input_dim": 54,
+  "learning_rate": 0.001,
+  "loss": "BCEWithLogitsLoss(pos_weight=n_negative/n_positive)",
+  "max_epochs": 50,
+  "model_selection_metric": "f1 (validation)",
+  "optimizer": "Adam",
+  "random_state": 42,
+  "trained_epochs": 17
+}
