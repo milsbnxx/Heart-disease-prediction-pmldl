@@ -1,0 +1,40 @@
+{
+  "best_epoch": 10,
+  "best_threshold": 0.7,
+  "config": {
+    "batch_norm": false,
+    "batch_size": 512,
+    "decision_threshold": 0.5,
+    "dropout": 0.3,
+    "early_stopping_patience": 5,
+    "hidden_layers": [
+      256
+    ],
+    "learning_rate": 0.001,
+    "max_epochs": 30,
+    "scheduler": null,
+    "selection_metric": "f1",
+    "weight_decay": 0.0
+  },
+  "decision_threshold": 0.7,
+  "input_dim": 54,
+  "loss": "BCEWithLogitsLoss(pos_weight=n_negative/n_positive)",
+  "metrics_at_best_threshold": {
+    "accuracy": 0.8539560925298364,
+    "f1": 0.4090150250417362,
+    "precision": 0.32914307648018426,
+    "recall": 0.5400724295386553,
+    "roc_auc": 0.8375691015283111
+  },
+  "metrics_at_default": {
+    "accuracy": 0.7426108737291881,
+    "f1": 0.3617697563114245,
+    "precision": 0.23553758325404378,
+    "recall": 0.7795622736576917,
+    "roc_auc": 0.8375691015283111
+  },
+  "optimizer": "Adam",
+  "random_state": 42,
+  "source_experiment": "exp_hidden_256",
+  "trained_epochs": 15
+}

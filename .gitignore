@@ -28,3 +28,5 @@ data/processed/*
 !data/processed/train_ready.csv
 !data/processed/validation_ready.csv
 !data/processed/test_ready.csv
+# Tuning checkpoints (intermediate, not part of the deliverables)
+results/models/tuning_checkpoints/
