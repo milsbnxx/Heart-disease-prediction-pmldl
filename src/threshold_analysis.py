@@ -1,25 +1,10 @@
-"""Like-for-like comparison of every model at its own tuned decision threshold.
-
-Section 4 tunes the decision threshold of the proposed MLP, which raises its
-F1 substantially. The Section 2 baselines and the Section 3 model are, however,
-reported at a fixed threshold of 0.5. Comparing a threshold-tuned model against
-fixed-threshold baselines overstates the improvement, so this script re-scores
-every model that has saved validation probabilities at:
-
-- the fixed 0.5 threshold (as originally reported);
-- the threshold that maximises that model's own validation F1;
-- the highest-precision threshold keeping recall at or above 0.70.
-
-It also reports average precision (PR-AUC), which is threshold-free and, unlike
-ROC-AUC, is sensitive to the ~9.36% positive rate of this dataset.
-
-No model is retrained: the script only reads the probability columns already
-saved in results/predictions/. The test split is not used.
-
-Usage (from the project root):
-
-    python3 src/threshold_analysis.py
-"""
+# Re-scores every model that has saved validation probabilities at its own
+# optimal threshold. Comparing a threshold-tuned model against baselines left
+# at 0.5 overstates the improvement, so the comparison is redone like for like.
+# Nothing is retrained; only the saved probability columns are read.
+#
+# PR-AUC is reported as well because, unlike ROC-AUC, it is sensitive to the
+# ~9.36% positive rate of this dataset.
 
 from __future__ import annotations
 

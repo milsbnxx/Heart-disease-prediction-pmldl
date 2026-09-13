@@ -1,32 +1,19 @@
-"""Section 4 - Model Improvements: hyperparameter tuning for the proposed MLP.
-
-The main sweep is a coordinate search around the Section 3 configuration: one
-hyperparameter axis is varied at a time while the others stay at their
-Section 3 values, and the winning value of each axis is then combined into a
-final configuration. A full grid over seven axes would be several hundred runs,
-which is not affordable at ~30 seconds per run.
-
-A second stage (`--stage extra`) answers two questions the main sweep raises:
-
-- how much of the spread between configurations is simply seed noise;
-- whether `pos_weight` and the decision threshold are interchangeable, since
-  both of them trade recall against precision.
-
-Everything is measured on the validation split. The test split is never
-loaded here: it stays untouched for the final evaluation in Section 5.
-
-Usage (from the project root):
-
-    python3 src/tuning.py                    # main sweep
-    python3 src/tuning.py --list             # show the plan without training
-    python3 src/tuning.py --stage extra      # seed variance + pos_weight
-    python3 src/tuning.py --only exp01_baseline
-    python3 src/tuning.py --max-epochs 30 --patience 5
-
-Each stage appends to its results CSV after every experiment and skips
-experiments already present in it, so a sweep can be interrupted with Ctrl+C
-and restarted without losing finished runs.
-"""
+# Coordinate search around the proposed model: one hyperparameter axis is
+# varied at a time while the others stay at their default values. A full grid
+# over seven axes would be several hundred runs at ~30 seconds each.
+#
+# --stage extra adds two diagnostic groups: the same configuration under
+# several seeds, which measures the noise floor of the whole sweep, and
+# several pos_weight values, which competes with the decision threshold.
+#
+# Everything is measured on validation; the test split is never loaded here.
+#
+#   python3 src/tuning.py                  main sweep
+#   python3 src/tuning.py --list           plan only, no training
+#   python3 src/tuning.py --stage extra    seed variance and pos_weight
+#
+# Results are appended after every experiment and finished runs are skipped,
+# so an interrupted sweep can be restarted without losing them.
 
 from __future__ import annotations
 
@@ -85,7 +72,6 @@ def stage_paths(stage: str) -> tuple[Path, Path]:
 
 
 def get_experiments() -> list[dict[str, Any]]:
-    """Coordinate search around the Section 3 configuration."""
     experiments: list[dict[str, Any]] = [
         {
             "name": "exp01_baseline",
@@ -169,7 +155,6 @@ def get_experiments() -> list[dict[str, Any]]:
 
 
 def best_experiment_overrides() -> tuple[str, dict[str, Any]]:
-    """Read the winning configuration of the main sweep from its checkpoint."""
     if not EXPERIMENTS_CSV.exists():
         raise RuntimeError(
             f"{EXPERIMENTS_CSV.name} not found - run the main stage first."
@@ -191,7 +176,6 @@ def best_experiment_overrides() -> tuple[str, dict[str, Any]]:
 
 
 def get_extra_experiments() -> list[dict[str, Any]]:
-    """Seed-variance and pos_weight runs, both based on the winning config."""
     name, overrides = best_experiment_overrides()
     print(f"Extra stage is based on {name}: {overrides or 'section 3 defaults'}")
 
@@ -336,12 +320,9 @@ def run_experiment(
     return row
 
 
+# Winning value of every axis, combined. Axes that did not beat the baseline
+# keep their default value.
 def build_combined_overrides(frame: pd.DataFrame) -> dict[str, Any]:
-    """Take the winning value of each axis and combine them into one config.
-
-    Axes whose best value does not beat the baseline are left at the
-    Section 3 value.
-    """
     baseline = frame.loc[frame["experiment"] == "exp01_baseline"]
     if baseline.empty:
         raise RuntimeError("exp01_baseline is missing from the results file")
@@ -382,7 +363,6 @@ def build_combined_overrides(frame: pd.DataFrame) -> dict[str, Any]:
 
 
 def summarise_extra() -> None:
-    """Print the noise floor and the pos_weight comparison."""
     frame = pd.read_csv(EXTRA_CSV)
 
     seeds = frame.loc[frame["axis"] == "seed"]
@@ -413,7 +393,6 @@ def summarise_extra() -> None:
 
 
 def export_best_model(data: dict[str, Any]) -> dict[str, Any]:
-    """Re-score the best checkpoint and write the Section 4 deliverables."""
     frame = pd.read_csv(EXPERIMENTS_CSV)
     best_row = frame.loc[frame["f1_at_best"].idxmax()]
     name = str(best_row["experiment"])

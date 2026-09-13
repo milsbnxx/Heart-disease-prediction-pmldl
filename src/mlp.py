@@ -33,9 +33,9 @@ PARAMS_DIR = RESULTS_DIR / "models"
 
 MODEL_NAME = "mlp"
 
-# Section 3 hyperparameters. They are kept as module-level constants so the
-# proposed model of Section 3 stays reproducible, and they are also the
-# starting point (DEFAULT_CONFIG) that Section 4 varies one axis at a time.
+# Model / training hyperparameters. Kept as module-level constants (rather than
+# hardcoded inline) so that Stage 2.4 (Model Improvements) can import and vary
+# them without rewriting the training loop.
 HIDDEN_LAYERS = [128, 64]
 DROPOUT = 0.3
 LEARNING_RATE = 1e-3
@@ -57,14 +57,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "selection_metric": "f1",  # f1 | roc_auc | f1_tuned
     "decision_threshold": DECISION_THRESHOLD,
     "seed": RANDOM_STATE,
-    # None means "derive n_negative / n_positive from the training split",
-    # which is the Section 3 behaviour. A number overrides it.
+    # None derives n_negative / n_positive from the training split.
     "pos_weight": None,
 }
 
 
 def build_config(**overrides: Any) -> dict[str, Any]:
-    """Return DEFAULT_CONFIG with the given keys replaced."""
     unknown = sorted(set(overrides) - set(DEFAULT_CONFIG))
     if unknown:
         raise KeyError(f"Unknown configuration keys: {unknown}")
@@ -78,7 +76,6 @@ def build_config(**overrides: Any) -> dict[str, Any]:
 
 
 def get_device() -> torch.device:
-    """Pick the fastest device available (CUDA, then Apple MPS, then CPU)."""
     if torch.cuda.is_available():
         return torch.device("cuda")
 
@@ -91,9 +88,8 @@ def get_device() -> torch.device:
 
 DEVICE = get_device()
 
-# Thresholds scanned when tuning the decision threshold. The range is wide
-# enough to cover an unweighted loss (whose optimal threshold sits near the
-# positive rate, ~0.09) as well as the pos_weight-weighted one (~0.70).
+# Wide enough for both an unweighted loss, whose optimal threshold sits near
+# the positive rate (~0.09), and the pos_weight-weighted one (~0.70).
 THRESHOLD_GRID = np.round(np.arange(0.01, 1.00, 0.01), 2)
 
 
@@ -163,18 +159,13 @@ def metrics_at_threshold(
     return calculate_metrics(y_true, y_pred, y_proba)
 
 
+# 0.5 is not a neutral threshold here: pos_weight deliberately pushes the
+# predicted probabilities upward, so the threshold is tuned on validation too.
 def find_best_threshold(
     y_true: np.ndarray,
     y_proba: np.ndarray,
     grid: np.ndarray | None = None,
 ) -> tuple[float, dict[str, float]]:
-    """Pick the decision threshold that maximises validation F1.
-
-    The default threshold of 0.5 is not optimal here: the loss is weighted by
-    pos_weight to counteract the class imbalance, which shifts the predicted
-    probabilities upward. The threshold is selected on the validation split
-    only; the test split is never touched.
-    """
     if grid is None:
         grid = THRESHOLD_GRID
 
@@ -190,18 +181,14 @@ def find_best_threshold(
     return best_threshold, metrics_at_threshold(y_true, y_proba, best_threshold)
 
 
+# Screening operating point: a missed positive case is costlier than a false
+# alarm, so recall is constrained instead of maximising F1.
 def find_threshold_at_min_recall(
     y_true: np.ndarray,
     y_proba: np.ndarray,
     min_recall: float = 0.70,
     grid: np.ndarray | None = None,
 ) -> tuple[float, dict[str, float]]:
-    """Highest-precision threshold that still keeps recall >= min_recall.
-
-    Reported alongside the max-F1 threshold because this is a screening task:
-    a missed positive case is costlier than a false alarm, so an operating
-    point that keeps recall high is worth showing even if its F1 is lower.
-    """
     if grid is None:
         grid = THRESHOLD_GRID
 
@@ -222,13 +209,9 @@ def find_threshold_at_min_recall(
     return best_threshold, metrics_at_threshold(y_true, y_proba, best_threshold)
 
 
+# Fitted once and reused by every experiment, so all configurations are
+# compared on identical inputs.
 def prepare_data() -> dict[str, Any]:
-    """Load the splits and fit the shared preprocessing transformer once.
-
-    Returned tensors are reused across every tuning experiment so that all
-    configurations are compared on exactly the same inputs, and so that the
-    preprocessing cost is paid a single time.
-    """
     X_train, y_train, X_validation, y_validation = load_train_validation()
 
     # Fit the shared preprocessing transformer on the training split only,
@@ -275,11 +258,6 @@ def train_mlp(
     config: dict[str, Any] | None = None,
     verbose: bool = True,
 ) -> dict[str, Any]:
-    """Train one MLP configuration and evaluate it on the validation split.
-
-    Returns the best checkpoint's state dict, its metrics at the fixed 0.5
-    threshold, its metrics at the tuned threshold, and the per-epoch history.
-    """
     config = build_config() if config is None else config
     set_seed(config["seed"])
 
@@ -353,6 +331,9 @@ def train_mlp(
             validation_targets, validation_proba, fixed_threshold
         )
 
+        # Best model is selected by validation F1, the same metric used to
+        # rank the baselines in results/baselines_metrics.csv, because
+        # accuracy is misleading on this imbalanced target.
         if selection_metric == "f1_tuned":
             _, tuned = find_best_threshold(validation_targets, validation_proba)
             score = tuned["f1"]
@@ -503,11 +484,6 @@ def save_params(
 
 
 def run_mlp() -> pd.DataFrame:
-    """Train the Section 3 proposed model and save its artefacts.
-
-    Behaviour is unchanged from Section 3: default hyperparameters, selection
-    by validation F1 at a fixed 0.5 threshold.
-    """
     data = prepare_data()
     config = build_config()
     result = train_mlp(data, config)
