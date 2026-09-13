@@ -265,7 +265,11 @@ def append_row(row: dict[str, Any], path: Path) -> None:
 def append_history(name: str, history: list[dict[str, float]], path: Path) -> None:
     frame = pd.DataFrame(history)
     frame.insert(0, "experiment", name)
-    frame.to_csv(path, mode="a", header=not path.exists(), index=False)
+    # Older logs lack val_loss. Align by column name when extending the schema,
+    # otherwise appending a wider row under the old CSV header corrupts the log.
+    if path.exists():
+        frame = pd.concat([pd.read_csv(path), frame], ignore_index=True, sort=False)
+    frame.to_csv(path, index=False)
 
 
 def save_checkpoint(name: str, result: dict[str, Any]) -> None:
@@ -418,6 +422,8 @@ def export_best_model(data: dict[str, Any]) -> dict[str, Any]:
 
     save_predictions(TUNED_MODEL_NAME, data["y_validation"], predictions, proba)
     torch.save(model.state_dict(), PARAMS_DIR / f"{TUNED_MODEL_NAME}_model.pt")
+    import joblib
+    joblib.dump(data["preprocessor"], PARAMS_DIR / f"{TUNED_MODEL_NAME}_preprocessor.joblib")
 
     params = dict(payload)
     params.update(

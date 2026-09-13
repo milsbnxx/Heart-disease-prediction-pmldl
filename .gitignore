@@ -34,3 +34,10 @@ data/processed/*
 results/models/tuning_checkpoints/
 results/tuning_best_history.csv
 results/tuning_extra_histories.csv
+
+# Fitted evaluation pipelines are reproducible local artifacts (RF is large).
+results/evaluation/models/
+results/models/*_pipeline.joblib
+
+# Separate local reproductions of the frozen evaluation.
+results/evaluation_runs/
