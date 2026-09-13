@@ -1,0 +1,6 @@
+model,source,validation_max_probability_difference,validation_mean_probability_difference,matches_legacy_at_2e-5,legacy_label_disagreements_at_0.5
+logistic_regression,fixed baseline refitted on train in recorded environment,2.3966177153944557e-08,8.50702261066067e-10,True,0
+decision_tree,fixed baseline refitted on train in recorded environment,1.1102230246251565e-16,1.2841094361731956e-19,True,0
+random_forest,fixed baseline refitted on train in recorded environment,2.7755575615628914e-16,7.171868774741597e-19,True,106
+mlp,"original saved weights, train-reconstructed preprocessing, CPU inference",1.8105636601095654e-07,1.120516756810888e-08,True,0
+mlp_tuned,"original saved weights, train-reconstructed preprocessing, CPU inference",1.4866409303593286e-07,1.2423223329456105e-08,True,10599

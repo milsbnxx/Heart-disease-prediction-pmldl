@@ -1,0 +1,16 @@
+{
+  "selection_split": "validation",
+  "selection_metric": "f1",
+  "threshold_grid": "0.01 to 0.99 inclusive, step 0.01",
+  "tie_rule": "smallest threshold",
+  "prediction_rule": "probability >= threshold",
+  "thresholds": {
+    "logistic_regression": 0.72,
+    "decision_tree": 0.96,
+    "random_forest": 0.2,
+    "mlp": 0.72,
+    "mlp_tuned": 0.7
+  },
+  "selected_model": "mlp_tuned",
+  "selected_model_reason": "Stage 4 validation selection; unchanged by test results"
+}

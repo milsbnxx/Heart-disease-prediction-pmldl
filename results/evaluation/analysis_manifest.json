@@ -1,0 +1,11 @@
+{
+  "bootstrap_repeats": 1000,
+  "seed": 42,
+  "matplotlib": "3.10.8",
+  "sources_sha256": {
+    "src/evaluation.py": "319c151f40d55ab3bc89fe688dd53e898dfe62a3ae400eab273e2901c7a7a795",
+    "src/evaluation_common.py": "2a161b7016e42c0645722211f89e65aa69101de0a8ab63d6e6c60d3fa02c5029",
+    "results/tuning_histories.csv": "73b6dba8ca111932b99d355837958d35c10fcafa92ba6c6930f43afc5afbb155",
+    "requirements-evaluation.txt": "824920346f2a622cc8ddf3dc98d9fd53a83ff408fa64557c9f71a1d645673eaf"
+  }
+}

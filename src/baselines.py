@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
+import joblib
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -140,6 +141,7 @@ def run_baselines() -> pd.DataFrame:
 
         save_predictions(model_name, y_validation, y_pred, y_proba)
         save_params(model_name, pipeline)
+        joblib.dump(pipeline, PARAMS_DIR / f"{model_name}_pipeline.joblib", compress=3)
 
         results.append(
             {

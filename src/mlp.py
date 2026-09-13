@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
+import joblib
 import pandas as pd
 import torch
 from sklearn.metrics import (
@@ -233,6 +234,7 @@ def prepare_data() -> dict[str, Any]:
         "validation_targets": y_validation.to_numpy(),
         "y_validation": y_validation,
         "input_dim": X_train_transformed.shape[1],
+        "preprocessor": preprocessor,
         "pos_weight": n_negative / n_positive,
     }
 
@@ -326,6 +328,10 @@ def train_mlp(
         with torch.no_grad():
             validation_logits = model(validation_features)
             validation_proba = torch.sigmoid(validation_logits).cpu().numpy()
+            validation_loss = float(criterion(
+                validation_logits,
+                torch.as_tensor(validation_targets, dtype=torch.float32, device=DEVICE),
+            ).cpu())
 
         epoch_metrics = metrics_at_threshold(
             validation_targets, validation_proba, fixed_threshold
@@ -348,6 +354,7 @@ def train_mlp(
             {
                 "epoch": epoch,
                 "train_loss": epoch_loss / max(n_batches, 1),
+                "val_loss": validation_loss,
                 "selection_score": score,
                 **{f"val_{key}": value for key, value in epoch_metrics.items()},
             }
@@ -499,6 +506,8 @@ def run_mlp() -> pd.DataFrame:
 
     PARAMS_DIR.mkdir(parents=True, exist_ok=True)
     torch.save(result["best_state"], PARAMS_DIR / f"{MODEL_NAME}_model.pt")
+    joblib.dump(data["preprocessor"], PARAMS_DIR / f"{MODEL_NAME}_preprocessor.joblib")
+    pd.DataFrame(result["history"]).to_csv(RESULTS_DIR / "mlp_history.csv", index=False)
 
     save_params(
         MODEL_NAME,
