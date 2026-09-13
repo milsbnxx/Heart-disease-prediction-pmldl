@@ -1,69 +1,54 @@
 # 4. Model Improvements
 
-This section takes the proposed MLP from Section 3 and improves it. It covers the tuning
-procedure, the experiments that were run, the selection of the final version of the model, and a
-corrected comparison against the Section 2 baselines.
-
-All measurements in this section are made on the **validation split**. The test split is not
-loaded anywhere in `src/tuning.py` or `src/threshold_analysis.py`: it stays untouched for the
-final evaluation in Section 5.
+This section takes the proposed MLP from Section 3, tunes it, selects a final version, and
+corrects the protocol used to compare it against the Section 2 baselines. Everything is measured
+on the **validation split**; the test split is not loaded anywhere in `src/tuning.py` or
+`src/threshold_analysis.py`.
 
 ## What Was Tuned
 
-Two different kinds of improvement were explored.
+**The decision threshold.** Section 3 converts probabilities into labels at 0.5, which is not a
+neutral choice: the loss is weighted with `pos_weight = n_negative / n_positive ≈ 9.69` to
+compensate for the ~9.36% positive rate, and that deliberately pushes the predicted probabilities
+upward. Keeping 0.5 gives recall 0.77 against precision 0.24. The threshold is therefore treated
+as a hyperparameter and selected on validation.
 
-**1. The decision threshold.** Section 3 converts probabilities into labels at a fixed threshold
-of 0.5. That threshold is not neutral here: the loss is weighted with
-`pos_weight = n_negative / n_positive ≈ 9.69` to compensate for the ~9.36% positive rate, which
-deliberately pushes the predicted probabilities upward. Keeping 0.5 therefore produces a model
-that predicts the positive class far too often - recall 0.77 against precision 0.24. The
-threshold is treated here as a hyperparameter and selected on the validation split.
+**The training hyperparameters.** Learning rate, dropout, hidden-layer sizes, batch size, weight
+decay, batch normalisation and a learning-rate scheduler. A full grid over these seven axes would
+be several hundred runs, so a **coordinate search** was used: one axis is varied at a time while
+the others stay at their Section 3 values, and the winning value of every axis is then combined
+into one configuration (`exp99_combined`). That gives 24 single-axis runs plus the combination.
 
-**2. The training hyperparameters.** Learning rate, dropout, hidden-layer sizes, batch size,
-weight decay, batch normalisation, and a learning-rate scheduler.
-
-A full grid over these seven axes would be several hundred runs. Instead a **coordinate search**
-was used: one axis is varied at a time while the other axes stay at their Section 3 values, and
-the winning value of every axis is then combined into one final configuration (`exp99_combined`).
-This gives 24 single-axis experiments plus one combined configuration.
-
-Two further groups of runs were added afterwards to interpret the sweep rather than to extend it:
-five repeats of the winning configuration under different random seeds, to measure how much of
-the observed spread is noise, and four values of `pos_weight`, to check whether it and the
-decision threshold do the same job.
+Two further groups of runs were added to interpret the sweep rather than extend it: five repeats
+of the winning configuration under different seeds, and four values of `pos_weight`.
 
 ## Experimental Setup
 
-The tuning code is `src/tuning.py`. `src/mlp.py` was refactored so that the training loop accepts
-a configuration dictionary (`build_config` / `train_mlp`) instead of reading module-level
-constants; `DEFAULT_CONFIG` holds exactly the Section 3 values, and `run_mlp()` is unchanged in
-behaviour, so Section 3 remains reproducible.
+The tuning code is `src/tuning.py`. `src/mlp.py` was refactored so that the training loop takes a
+configuration dictionary (`build_config` / `train_mlp`) instead of reading module-level constants;
+`DEFAULT_CONFIG` holds exactly the Section 3 values and `run_mlp()` is unchanged in behaviour, so
+Section 3 stays reproducible.
 
-- The preprocessing transformer is fitted **once** on the training split and the resulting tensors
-  are reused by every experiment, so all configurations are compared on identical inputs.
-- Unless an experiment varies it, every run uses seed 42 for `torch`, `numpy`, and the
+- The preprocessing transformer is fitted **once** on the training split and the tensors are
+  reused by every experiment, so all configurations see identical inputs.
+- Unless an experiment varies it, every run uses seed 42 for `torch`, `numpy` and the
   `DataLoader` shuffle.
-- Tuning budget: up to 30 epochs with early stopping patience 5, instead of the 50/7 used in
-  Section 3. This is safe: the Section 3 run reached its best epoch at 10 and stopped at 17, and
-  the baseline configuration re-run under the shorter budget (`exp01_baseline`) reproduces the
-  Section 3 result exactly - best epoch 10, F1 0.3655 at threshold 0.5.
-- Checkpoint selection inside a run is by validation F1 at threshold 0.5, as in Section 3.
-  Configuration selection across runs is by validation F1 at the **tuned** threshold.
-- Hardware: Apple M-series GPU via the PyTorch MPS backend. The 25 runs of the main sweep took
-  750 seconds in total, the 9 additional runs 135 seconds.
+- Budget: 30 epochs, early stopping patience 5, against 50/7 in Section 3. This is safe - the
+  baseline configuration re-run under the shorter budget (`exp01_baseline`) reproduces the
+  Section 3 result exactly: best epoch 10, F1 0.3655 at threshold 0.5.
+- Checkpoint selection inside a run is by validation F1 at 0.5, as in Section 3. Configuration
+  selection across runs is by validation F1 at the **tuned** threshold.
+- Hardware: Apple M-series GPU via the PyTorch MPS backend. 750 seconds for the 25 runs of the
+  main sweep, 135 seconds for the 9 additional ones.
 
-For every experiment three operating points are recorded:
-
-- **@0.5** - the fixed Section 3 threshold;
-- **@best** - the threshold maximising validation F1, scanned over 0.01 to 0.99 in steps of 0.01;
-- **@recall 0.70** - the highest-precision threshold that still keeps recall at or above 0.70,
-  reported because this is a screening task where a missed positive case is costlier than a
-  false alarm.
+Three operating points are recorded per run: **@0.5**, the fixed Section 3 threshold; **@best**,
+the threshold maximising validation F1, scanned from 0.01 to 0.99; and **@recall 0.70**, the
+highest-precision threshold keeping recall at or above 0.70, which matters because this is a
+screening task where a missed positive case is costlier than a false alarm.
 
 ## Results of the Main Sweep
 
-Full results are in `results/tuning_experiments.csv`; per-epoch curves for every run are in
-`results/tuning_histories.csv`.
+Full results in `results/tuning_experiments.csv`, per-epoch curves in `results/tuning_histories.csv`.
 
 | Experiment | Axis | Value | F1 @0.5 | ROC-AUC | Best thr. | Precision @best | Recall @best | **F1 @best** |
 |---|---|---|---:|---:|---:|---:|---:|---:|
@@ -93,16 +78,16 @@ Full results are in `results/tuning_experiments.csv`; per-epoch curves for every
 | exp_sched_plateau | scheduler | plateau | 0.3628 | 0.8378 | 0.72 | 0.3344 | 0.5160 | 0.4058 |
 | exp99_combined | combined | all axis winners | 0.3610 | 0.8353 | 0.66 | 0.3230 | 0.5363 | 0.4031 |
 
-Two observations. First, moving the baseline configuration from threshold 0.5 to its optimal
-0.74 raises F1 from 0.3655 to 0.4070, **+0.0415 (+11.4%)**, without retraining anything. Second,
-all 25 configurations land between 0.4031 and 0.4090 - a total spread of 0.0059 - and ROC-AUC
-spans only 0.8353 to 0.8381. The combined configuration, built from the winning value of every
-axis, is the *worst* run in the table.
+Two observations. Moving the baseline configuration from threshold 0.5 to its optimal 0.74 raises
+F1 from 0.3655 to 0.4070, **+0.0415 (+11.4%)**, without retraining anything. And all 25
+configurations land between 0.4031 and 0.4090 - a spread of 0.0059, with ROC-AUC spanning only
+0.8353 to 0.8381 - while the combined configuration, built from the winner of every axis, is the
+*worst* run in the table.
 
 ## How Much of That Spread Is Noise?
 
-To find out, the winning configuration was re-run with five different random seeds, changing
-nothing else. Results are in `results/tuning_extra.csv`.
+The winning configuration was re-run with five seeds, changing nothing else
+(`results/tuning_extra.csv`).
 
 | Experiment | Seed | Best epoch | F1 @0.5 | ROC-AUC | Best thr. | F1 @best |
 |---|---:|---:|---:|---:|---:|---:|
@@ -112,29 +97,24 @@ nothing else. Results are in `results/tuning_extra.csv`.
 | exp_seed_42 | 42 | 10 | 0.3618 | 0.8376 | 0.70 | 0.4090 |
 | exp_seed_2024 | 2024 | 2 | 0.3607 | 0.8374 | 0.68 | 0.4074 |
 
-Mean 0.4063, standard deviation 0.0020, **range 0.0052**. The entire main sweep - 25 different
-architectures, learning rates, batch sizes and regularisation settings - spans 0.0059. In other
-words **89% of the spread across the whole sweep is reproduced by changing nothing but the random
-seed.** No single-axis result in the table above can be called an improvement: the differences
-between them are smaller than, or comparable to, the noise floor.
+Mean 0.4063, standard deviation 0.0020, **range 0.0052** - against 0.0059 for the entire sweep of
+25 different architectures, learning rates and regularisation settings. **89% of the spread across
+the whole sweep is reproduced by changing nothing but the random seed**, so no single-axis result
+above can be called an improvement. This also places the selected model: `exp_hidden_256` and
+`exp_seed_42` are the same run, and its 0.4090 is the *maximum* of the five seed draws, 1.3
+standard deviations above the mean of its own configuration. Taking the argmax of 25 noisy runs
+is guaranteed to pick an upward fluctuation.
 
-This also puts the selected model in perspective. `exp_hidden_256` and `exp_seed_42` are the same
-run, and its 0.4090 is the *maximum* of the five seed draws, 1.3 standard deviations above the
-mean of its own configuration. Selecting the argmax of 25 noisy runs is guaranteed to pick an
-upward fluctuation.
-
-A secondary finding: the best epoch varies wildly between seeds (1, 1, 2, 3, 10). Early stopping
-watches validation F1 at threshold 0.5, which fluctuates by ±0.005 from epoch to epoch while
-ROC-AUC moves by ±0.001. With patience 5 this means training frequently stops on a noise dip.
-Selecting the checkpoint on ROC-AUC, which is threshold-free and far smoother, would be a more
-robust choice; that is left as a recommendation rather than a change, because it would make the
-Section 3 comparison inconsistent.
+A secondary finding: the best epoch swings between seeds (1, 1, 2, 3, 10). Early stopping watches
+validation F1 at 0.5, which fluctuates by ±0.005 between epochs while ROC-AUC moves by ±0.001, so
+with patience 5 training often stops on a noise dip. Selecting the checkpoint on ROC-AUC would be
+more robust; that is left as a recommendation, since changing it would break comparability with
+Section 3.
 
 ## Is `pos_weight` Just the Threshold in Disguise?
 
-Every run above used `pos_weight ≈ 9.69`. Both `pos_weight` and the decision threshold trade
-recall against precision, so four more values were tried, holding everything else at the winning
-configuration.
+Every run above used `pos_weight ≈ 9.69`. Both it and the decision threshold trade recall against
+precision, so four more values were tried on the winning configuration.
 
 | Experiment | pos_weight | F1 @0.5 | ROC-AUC | Best thr. | F1 @best |
 |---|---:|---:|---:|---:|---:|
@@ -144,26 +124,21 @@ configuration.
 | exp_posw_15 | 15.0 | 0.3261 | 0.8374 | 0.79 | 0.4069 |
 | (main sweep) | 9.69 | 0.3618 | 0.8376 | 0.70 | 0.4090 |
 
-At the fixed 0.5 threshold, `pos_weight` looks enormously important: F1 ranges from 0.164 to
-0.404, a factor of 2.5. Once each model is read at its own optimal threshold, the same runs span
-0.4069 to 0.4090 - a spread of 0.0021, well inside the seed noise of 0.0052. ROC-AUC is flat at
-0.837 throughout.
-
-So the two mechanisms are interchangeable: weighting the loss and moving the threshold shift the
-same decision boundary, and doing both is redundant. Note in particular that `pos_weight = 5`
-reaches F1 0.404 at the default threshold of 0.5 - nearly the tuned optimum - which is another
-way of saying that the Section 3 model was mis-calibrated for its own threshold rather than
-under-trained. The unweighted model (`pos_weight = 1`) is just as good once its threshold is set
-to 0.20, which confirms that the class imbalance never needed to be handled in the loss at all.
+At a fixed 0.5 threshold `pos_weight` looks decisive: F1 ranges from 0.164 to 0.404. Read at each
+model's own optimal threshold the same runs span 0.4069 to 0.4090, a spread of 0.0021 - well
+inside the seed noise - with ROC-AUC flat at 0.837 throughout. The two mechanisms are therefore
+interchangeable, and applying both is redundant. Note that `pos_weight = 5` reaches F1 0.404 at
+the default threshold, nearly the tuned optimum: the Section 3 model was mis-calibrated for its
+own threshold rather than under-trained. The unweighted model is equally good once its threshold
+is set to 0.20, so the class imbalance never needed handling in the loss at all.
 
 ## Fair Comparison Against the Baselines
 
-Section 3 compares the MLP at threshold 0.5 with baselines also at threshold 0.5, and this
-section tunes the MLP's threshold. Comparing a threshold-tuned model with fixed-threshold
-baselines would overstate the improvement, so `src/threshold_analysis.py` re-scores **every**
-model that has saved validation probabilities at its own optimal threshold. Nothing is
-retrained; only the saved probability columns are re-read. Output:
-`results/threshold_comparison.csv`.
+Section 2 and Section 3 report every model at a fixed 0.5 threshold, and this section tunes the
+MLP's threshold. Comparing the two directly would overstate the improvement, so
+`src/threshold_analysis.py` re-scores **every** model with saved validation probabilities at its
+own optimal threshold. Nothing is retrained; only the saved probability columns are re-read.
+Output: `results/threshold_comparison.csv`.
 
 | Model | F1 @0.5 | Best thr. | Precision @best | Recall @best | **F1 @best** | Gain | ROC-AUC | PR-AUC |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -173,95 +148,70 @@ retrained; only the saved probability columns are re-read. Output:
 | Random Forest | 0.1494 | 0.20 | 0.2868 | 0.5147 | 0.3684 | **+0.2190** | 0.8012 | 0.2828 |
 | Decision Tree | 0.2353 | 0.96 | 0.2329 | 0.2393 | 0.2361 | +0.0007 | 0.5789 | 0.1271 |
 
-This changes the conclusions of Section 2 and Section 3 in two ways.
+This changes two conclusions from earlier sections.
 
-**Random Forest was not a bad model; it was read at the wrong threshold.** Its F1 rises from
-0.149 to 0.368, a factor of 2.5, purely from moving the threshold to 0.20. Its apparent failure
-in Section 2 - recall 0.085 - was an artefact of `class_weight="balanced"` combined with a
-threshold of 0.5, not evidence about the model. Its ROC-AUC of 0.80 was already saying this.
+**Random Forest was not a bad model; it was read at the wrong threshold.** Its F1 rises from 0.149
+to 0.368 purely by moving the threshold to 0.20. The recall of 0.085 reported in Section 2 was an
+artefact of `class_weight="balanced"` combined with a 0.5 threshold, not evidence about the model
+- as its ROC-AUC of 0.80 was already indicating.
 
-**The MLP's advantage over Logistic Regression is real but very small.** On a like-for-like
-comparison it is 0.4090 against 0.4018, **+0.0072 (+1.8%)** - and against the seed-mean of the
-MLP configuration, 0.4063, it is +0.0045 (+1.1%), which is inside the seed noise. PR-AUC, which
-is threshold-free and, unlike ROC-AUC, sensitive to the 9.36% positive rate, tells the same
-story: 0.3561 for the tuned MLP against 0.3542 for Logistic Regression, a difference of 0.002.
-
-The headline number one could quote from Section 3 - "the MLP beats the best baseline by 13%" -
-is therefore an artefact of the comparison protocol, not a property of the model.
+**The MLP's advantage over Logistic Regression is real but very small.** Like for like it is
+0.4090 against 0.4018, **+0.0072 (+1.8%)**; measured against the seed-mean of 0.4063 it is +0.0045
+(+1.1%), which is inside the seed noise. PR-AUC, which is threshold-free and, unlike ROC-AUC,
+sensitive to the 9.36% positive rate, agrees: 0.3561 against 0.3542. The figure one could quote
+from Section 3 - the MLP beating the best baseline by 13% - is an artefact of the comparison
+protocol, not a property of the model.
 
 ## Selected Model
 
 The best configuration by validation F1 at the tuned threshold is **`exp_hidden_256`**: a single
-hidden layer of 256 units, with the Section 3 values on every other axis, evaluated at
-**threshold 0.70**.
+hidden layer of 256 units, Section 3 values on every other axis, evaluated at **threshold 0.70**.
+Its metrics and those of the two models it should be compared with are the first three rows of
+the table above. An alternative operating point is available for every model: at threshold 0.57
+the tuned MLP gives precision 0.261 at recall 0.709 (F1 0.382), which is the screening-oriented
+choice, since the max-F1 point roughly halves recall to buy precision.
 
-| | Accuracy | Precision | Recall | F1 | ROC-AUC | PR-AUC |
-|---|---:|---:|---:|---:|---:|---:|
-| Logistic Regression @0.72 | 0.8642 | 0.3418 | 0.4875 | 0.4018 | 0.8346 | 0.3542 |
-| MLP, Section 3 @0.72 | 0.8588 | 0.3349 | 0.5157 | 0.4061 | 0.8376 | 0.3568 |
-| **MLP tuned @0.70** | **0.8540** | 0.3291 | **0.5401** | **0.4090** | 0.8376 | 0.3561 |
-
-An alternative operating point is also available for every model. At the screening-oriented
-threshold of 0.57, the tuned MLP gives precision 0.261 at recall 0.709 (F1 0.382). Which point to
-deploy is a clinical decision, not a metric decision, and the max-F1 point roughly halves recall
-to buy precision.
-
-It should be stated plainly what this section did and did not achieve:
+What this section did and did not achieve:
 
 - **Achieved:** +0.0472 F1 over the Section 3 model as reported (+13.1%), essentially all of it
-  from correcting the decision threshold, plus a corrected comparison protocol that repairs the
-  Section 2 ranking of Random Forest.
-- **Not achieved:** any improvement from architecture or optimisation. The single-layer network
-  is kept because it is the argmax of the search and because it is the *simpler* model - 14 337
+  from correcting the decision threshold, plus a comparison protocol that repairs the Section 2
+  ranking of Random Forest.
+- **Not achieved:** any improvement from architecture or optimisation. The single-layer network is
+  kept because it is the argmax of the search and because it is the *simpler* model - 14 337
   parameters against 15 361 for the two-layer Section 3 network - so nothing is paid for the
   choice. Its 0.0020 F1 advantage over the Section 3 architecture is one standard deviation of
-  seed noise and should not be read as a real difference. ROC-AUC is identical to Section 3 at
-  0.8376.
+  seed noise and should not be read as a real difference; ROC-AUC is identical at 0.8376.
 
-The underlying reason is visible throughout: 34 runs covering seven hyperparameter axes, two
-class-balancing mechanisms and five seeds all produce ROC-AUC between 0.835 and 0.838. The task
-is limited by the information in the 17 self-reported BRFSS features, not by model capacity, and
-no amount of tuning of this model family will move it.
+The reason is visible throughout: 34 runs covering seven hyperparameter axes, two class-balancing
+mechanisms and five seeds all produce ROC-AUC between 0.835 and 0.838. The task is limited by the
+information in the 17 self-reported BRFSS features, not by model capacity.
 
 ## Limitations
 
-The checkpoint, the configuration, and the threshold are all selected on the same validation
-split, so the numbers in this section are optimistically biased, and the bias is largest exactly
-where the search was widest. The unbiased estimate is the one measured on the untouched test
-split in Section 5, and some regression there is expected - particularly for the threshold, which
-was fitted to the validation split at a resolution of 0.01, and for the selected configuration,
-which is the maximum of 25 noisy draws.
-
-Section 5 should therefore report the test-split metrics of every model at the threshold chosen
-on validation (never re-tuned on test), and should use the corrected comparison of this section
-rather than the threshold-0.5 table from Section 2.
+The checkpoint, the configuration and the threshold are all selected on the same validation split,
+so these numbers are optimistically biased, most of all where the search was widest. The unbiased
+estimate is the test-split measurement in Section 5, and some regression is expected - especially
+for the threshold, fitted to validation at a resolution of 0.01, and for the selected
+configuration, the maximum of 25 noisy draws. Section 5 should report test-split metrics at the
+threshold chosen on validation, never re-tuned on test, and should use the comparison table above
+rather than the fixed-threshold table from Section 2.
 
 ## Reproducibility
 
-Run from the project root:
-
 ```bash
-python3 src/tuning.py                  # main sweep, 25 runs, ~13 minutes on Apple MPS
-python3 src/tuning.py --list           # show the experiment plan without training
-python3 src/tuning.py --stage extra    # seed variance and pos_weight, 9 runs, ~2 minutes
+python3 src/tuning.py                  # main sweep, 25 runs, ~13 min on Apple MPS
+python3 src/tuning.py --list           # experiment plan, no training
+python3 src/tuning.py --stage extra    # seed variance and pos_weight, 9 runs, ~2 min
 python3 src/threshold_analysis.py      # fair comparison, no training
-python3 src/tuning.py --export-only    # rebuild the deliverables from existing runs
+python3 src/tuning.py --export-only    # rebuild deliverables from existing runs
 ```
 
-Each stage appends to its results CSV after every experiment and skips experiments already
-recorded there, so an interrupted sweep can be restarted without losing finished runs.
+Each stage appends to its results CSV after every experiment and skips runs already recorded
+there, so an interrupted sweep can be restarted without losing them.
 
-Artefacts produced:
-
-- `results/tuning_experiments.csv` - one row per main-sweep experiment, all three operating points;
-- `results/tuning_histories.csv` - per-epoch loss and validation metrics for every experiment;
-- `results/tuning_extra.csv`, `results/tuning_extra_histories.csv` - seed and `pos_weight` runs;
-- `results/threshold_comparison.csv` - every model at its own tuned threshold, with PR-AUC;
-- `results/tuning_best_history.csv` - per-epoch curves of the selected model, for Section 5;
-- `results/mlp_tuned_metrics.csv` - metrics of the selected model;
-- `results/models/mlp_tuned_model.pt` - the selected checkpoint;
-- `results/models/mlp_tuned_params.json` - its configuration and decision threshold;
-- `results/predictions/mlp_tuned_validation.csv` - its validation predictions and probabilities.
-
-Intermediate per-experiment checkpoints are written to
+Artefacts: per-experiment metrics in `results/tuning_experiments.csv`, `tuning_extra.csv` and
+`threshold_comparison.csv`; per-epoch curves for every run in `tuning_histories.csv`; the selected
+model itself in `results/mlp_tuned_metrics.csv`,
+`results/models/mlp_tuned_model.pt`, `results/models/mlp_tuned_params.json` and
+`results/predictions/mlp_tuned_validation.csv`. Intermediate per-experiment checkpoints go to
 `results/models/tuning_checkpoints/` and are excluded from version control.
