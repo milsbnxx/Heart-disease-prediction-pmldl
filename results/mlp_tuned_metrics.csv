@@ -1,0 +1,2 @@
+model,accuracy,f1,precision,recall,roc_auc,decision_threshold,source_experiment,random_state,evaluated_split
+mlp_tuned,0.8539560925298364,0.4090150250417362,0.32914307648018426,0.5400724295386553,0.8375691015283111,0.7,exp_hidden_256,42,validation
