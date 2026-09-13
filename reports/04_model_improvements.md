@@ -38,9 +38,6 @@ Section 3 stays reproducible.
   Section 3 result exactly: best epoch 10, F1 0.3655 at threshold 0.5.
 - Checkpoint selection inside a run is by validation F1 at 0.5, as in Section 3. Configuration
   selection across runs is by validation F1 at the **tuned** threshold.
-- Hardware: Apple M-series GPU via the PyTorch MPS backend. 750 seconds for the 25 runs of the
-  main sweep, 135 seconds for the 9 additional ones.
-
 Three operating points are recorded per run: **@0.5**, the fixed Section 3 threshold; **@best**,
 the threshold maximising validation F1, scanned from 0.01 to 0.99; and **@recall 0.70**, the
 highest-precision threshold keeping recall at or above 0.70, which matters because this is a
@@ -97,21 +94,13 @@ The winning configuration was re-run with five seeds, changing nothing else
 | exp_seed_42 | 42 | 10 | 0.3618 | 0.8376 | 0.70 | 0.4090 |
 | exp_seed_2024 | 2024 | 2 | 0.3607 | 0.8374 | 0.68 | 0.4074 |
 
-Mean 0.4063, standard deviation 0.0020, **range 0.0052** - against 0.0059 for the entire sweep of
-25 different architectures, learning rates and regularisation settings. **89% of the spread across
-the whole sweep is reproduced by changing nothing but the random seed**, so no single-axis result
-above can be called an improvement. This also places the selected model: `exp_hidden_256` and
-`exp_seed_42` are the same run, and its 0.4090 is the *maximum* of the five seed draws, 1.3
-standard deviations above the mean of its own configuration. Taking the argmax of 25 noisy runs
-is guaranteed to pick an upward fluctuation.
+Mean 0.4063, standard deviation 0.0020, **range 0.0052** - against 0.0059 for the entire sweep.
+**89% of the spread across the whole sweep is reproduced by changing nothing but the random
+seed**, so no single-axis result above can be called an improvement. The selected configuration is
+itself one of these runs: `exp_hidden_256` is `exp_seed_42`, and its 0.4090 is the *maximum* of the
+five draws, 1.3 standard deviations above its own mean.
 
-A secondary finding: the best epoch swings between seeds (1, 1, 2, 3, 10). Early stopping watches
-validation F1 at 0.5, which fluctuates by ±0.005 between epochs while ROC-AUC moves by ±0.001, so
-with patience 5 training often stops on a noise dip. Selecting the checkpoint on ROC-AUC would be
-more robust; that is left as a recommendation, since changing it would break comparability with
-Section 3.
-
-## Is `pos_weight` Just the Threshold in Disguise?
+## `pos_weight` and the Decision Threshold
 
 Every run above used `pos_weight ≈ 9.69`. Both it and the decision threshold trade recall against
 precision, so four more values were tried on the winning configuration.
@@ -181,20 +170,6 @@ What this section did and did not achieve:
   parameters against 15 361 for the two-layer Section 3 network - so nothing is paid for the
   choice. Its 0.0020 F1 advantage over the Section 3 architecture is one standard deviation of
   seed noise and should not be read as a real difference; ROC-AUC is identical at 0.8376.
-
-The reason is visible throughout: 34 runs covering seven hyperparameter axes, two class-balancing
-mechanisms and five seeds all produce ROC-AUC between 0.835 and 0.838. The task is limited by the
-information in the 17 self-reported BRFSS features, not by model capacity.
-
-## Limitations
-
-The checkpoint, the configuration and the threshold are all selected on the same validation split,
-so these numbers are optimistically biased, most of all where the search was widest. The unbiased
-estimate is the test-split measurement in Section 5, and some regression is expected - especially
-for the threshold, fitted to validation at a resolution of 0.01, and for the selected
-configuration, the maximum of 25 noisy draws. Section 5 should report test-split metrics at the
-threshold chosen on validation, never re-tuned on test, and should use the comparison table above
-rather than the fixed-threshold table from Section 2.
 
 ## Reproducibility
 
