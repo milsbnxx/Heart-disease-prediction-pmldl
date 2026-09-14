@@ -2,9 +2,9 @@
 
 This repository contains the source code and reproducibility instructions for the Heart Disease Prediction project. The project solves a binary classification task to predict whether a survey respondent reports a history of heart disease using the 2024 Behavioral Risk Factor Surveillance System (BRFSS) dataset.
 
-## Project Structure & Deliverables
+## Project structure & deliverables
 
-*   **Final Report:** The comprehensive results section is available in `reports/05_results.md`.
+*   **Final Report:** The comprehensive project report, covering all stages from data preprocessing to final evaluation, is available in `project.pdf`.
 *   **Evaluation Code:** Implemented in `src/evaluation.py`. For detailed file descriptions, see `results/evaluation/README.md`.
 *   **Saved Artifacts:** The saved evaluation results include validation and final test metrics for all five models, evaluated both at a default 0.5 threshold and at optimal thresholds selected on the validation split. Outputs also include ROC/PR curves, confusion matrices, training curves, error analysis, and 95% paired bootstrap intervals. 
 *   *Note:* Re-running the evaluation pipeline utilizes these saved predictions and does not require retraining the models.
@@ -18,11 +18,13 @@ python3 -m pip install -r requirements.txt
 ```
 
 ## Data access
-Raw BRFSS datasets are not tracked in version control due to size constraints. Download and generate the initial datasets by running:
+Raw BRFSS datasets are not tracked in version control due to size constraints. Download the raw BRFSS data by running:
 
 ```bash
 python3 data/raw/download_data.py
 ```
+The processed train_ready.csv, validation_ready.csv, and test_ready.csv datasets used by the modeling pipeline are stored directly in the project repository.
+
 ## Execution pipeline
 Execute the pipeline sequentially from the project root to reproduce all metrics, model checkpoints, and evaluation results:
 
@@ -42,6 +44,8 @@ python3 src/mlp.py
 
 ```bash
 python3 src/tuning.py
+python3 src/tuning.py --stage extra
+python3 src/tuning.py --export-only
 ```
 
 ### 4. Analyze thresholds:
