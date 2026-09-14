@@ -41,3 +41,8 @@ results/models/*_pipeline.joblib
 
 # Separate local reproductions of the frozen evaluation.
 results/evaluation_runs/
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
