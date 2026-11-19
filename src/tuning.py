@@ -155,23 +155,42 @@ def get_experiments() -> list[dict[str, Any]]:
 
 
 def best_experiment_overrides() -> tuple[str, dict[str, Any]]:
+    """Recover the winning configuration from the tracked experiment table.
+
+    Checkpoint files contain model weights and are intentionally optional for
+    this operation. The CSV is the portable experiment ledger and therefore
+    must contain enough information to reconstruct the selected hyperparameters.
+    """
     if not EXPERIMENTS_CSV.exists():
         raise RuntimeError(
-            f"{EXPERIMENTS_CSV.name} not found - run the main stage first."
+            f"{EXPERIMENTS_CSV.name} not found - run the main tuning stage first."
         )
 
     frame = pd.read_csv(EXPERIMENTS_CSV)
-    name = str(frame.loc[frame["f1_at_best"].idxmax()]["experiment"])
-    with open(CHECKPOINTS_DIR / f"{name}.json", encoding="utf-8") as file:
-        config = json.load(file)["config"]
+    if frame.empty or "f1_at_best" not in frame:
+        raise RuntimeError(f"No completed tuning experiments in {EXPERIMENTS_CSV}.")
 
+    row = frame.loc[frame["f1_at_best"].astype(float).idxmax()]
+    name = str(row["experiment"])
     defaults = build_config()
-    overrides = {
-        key: value
-        for key, value in config.items()
-        if key in defaults and value != defaults[key]
-        and key not in {"max_epochs", "early_stopping_patience"}
-    }
+    overrides: dict[str, Any] = {}
+
+    if pd.notna(row.get("hidden_layers")):
+        overrides["hidden_layers"] = [int(v) for v in str(row["hidden_layers"]).split("x")]
+    for key in ("dropout", "learning_rate", "batch_size", "weight_decay", "batch_norm", "scheduler"):
+        value = row.get(key)
+        if pd.isna(value):
+            continue
+        if key == "scheduler":
+            value = None if str(value) in {"none", "nan", ""} else str(value)
+        elif key == "batch_norm":
+            value = str(value).strip().lower() in {"true", "1"}
+        elif key == "batch_size":
+            value = int(value)
+        else:
+            value = float(value)
+        if value != defaults[key]:
+            overrides[key] = value
     return name, overrides
 
 
@@ -232,6 +251,9 @@ def flatten_result(
         "batch_norm": config["batch_norm"],
         "scheduler": config["scheduler"] or "none",
         "seed": config["seed"],
+        "max_epochs": config["max_epochs"],
+        "early_stopping_patience": config["early_stopping_patience"],
+        "selection_metric": config["selection_metric"],
         "pos_weight": result["pos_weight_used"],
         "best_epoch": result["best_epoch"],
         "trained_epochs": result["trained_epochs"],
@@ -257,9 +279,15 @@ def flatten_result(
 
 
 def append_row(row: dict[str, Any], path: Path) -> None:
+    """Append while keeping CSV columns aligned across schema upgrades."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    frame = pd.DataFrame([row])
-    frame.to_csv(path, mode="a", header=not path.exists(), index=False)
+    new_frame = pd.DataFrame([row])
+    if path.exists():
+        old_frame = pd.read_csv(path)
+        combined = pd.concat([old_frame, new_frame], ignore_index=True, sort=False)
+        combined.to_csv(path, index=False)
+    else:
+        new_frame.to_csv(path, index=False)
 
 
 def append_history(name: str, history: list[dict[str, float]], path: Path) -> None:
@@ -397,14 +425,80 @@ def summarise_extra() -> None:
 
 
 def export_best_model(data: dict[str, Any]) -> dict[str, Any]:
-    frame = pd.read_csv(EXPERIMENTS_CSV)
-    best_row = frame.loc[frame["f1_at_best"].idxmax()]
-    name = str(best_row["experiment"])
+    """Export the best run, rebuilding its checkpoint if it was not archived.
 
-    with open(CHECKPOINTS_DIR / f"{name}.json", encoding="utf-8") as file:
-        payload = json.load(file)
-    config = payload["config"]
-    threshold = float(payload["best_threshold"])
+    The tracked CSV stores the selected hyperparameters. If binary checkpoint
+    files were omitted from a source archive, the selected run is retrained with
+    the recorded configuration and the newly measured metrics are exported.
+    """
+    if not EXPERIMENTS_CSV.exists():
+        raise RuntimeError("Run `python3 src/tuning.py` before exporting the best model.")
+
+    frame = pd.read_csv(EXPERIMENTS_CSV)
+    if frame.empty:
+        raise RuntimeError("The tuning results file contains no experiments.")
+    best_row = frame.loc[frame["f1_at_best"].astype(float).idxmax()]
+    name = str(best_row["experiment"])
+    CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoint_json = CHECKPOINTS_DIR / f"{name}.json"
+    checkpoint_pt = CHECKPOINTS_DIR / f"{name}.pt"
+
+    if checkpoint_json.exists() and checkpoint_pt.exists():
+        payload = json.loads(checkpoint_json.read_text(encoding="utf-8"))
+        state = torch.load(checkpoint_pt, map_location=DEVICE, weights_only=True)
+        config = payload["config"]
+        threshold = float(payload["best_threshold"])
+        metrics = payload["metrics_at_best_threshold"]
+        best_epoch = int(payload["best_epoch"])
+        trained_epochs = int(payload["trained_epochs"])
+        history = None
+        export_source = "saved tuning checkpoint"
+    else:
+        # Older experiment CSVs did not store the training budget; the original
+        # sweep defaults are used for those rows. New rows store both values.
+        _, overrides = best_experiment_overrides()
+        max_epochs = int(best_row.get("max_epochs", TUNING_MAX_EPOCHS)) if pd.notna(best_row.get("max_epochs", TUNING_MAX_EPOCHS)) else TUNING_MAX_EPOCHS
+        patience = int(best_row.get("early_stopping_patience", TUNING_PATIENCE)) if pd.notna(best_row.get("early_stopping_patience", TUNING_PATIENCE)) else TUNING_PATIENCE
+        config = build_config(max_epochs=max_epochs, early_stopping_patience=patience, **overrides)
+        print(f"Checkpoint for {name} is missing; retraining this configuration for export.")
+        result = train_mlp(data, config, verbose=True)
+        state = result["best_state"]
+        threshold = float(result["best_threshold"])
+        metrics = result["metrics_at_best_threshold"]
+        best_epoch = int(result["best_epoch"])
+        trained_epochs = int(result["trained_epochs"])
+        history = result["history"]
+
+        # The original binary checkpoint was not part of the archive. This is
+        # now a new training run, so update the experiment ledger and history
+        # with the metrics actually produced by the reconstructed weights.
+        refreshed = flatten_result(
+            {"name": name, "axis": str(best_row["axis"]), "value": best_row["value"]},
+            result,
+        )
+        ledger = pd.read_csv(EXPERIMENTS_CSV)
+        ledger.loc[ledger["experiment"].astype(str) == name, list(refreshed)] = list(refreshed.values())
+        ledger.to_csv(EXPERIMENTS_CSV, index=False)
+        if HISTORIES_CSV.exists():
+            old_history = pd.read_csv(HISTORIES_CSV)
+            old_history = old_history.loc[old_history["experiment"].astype(str) != name]
+            new_history = pd.DataFrame(history)
+            new_history.insert(0, "experiment", name)
+            pd.concat([old_history, new_history], ignore_index=True, sort=False).to_csv(
+                HISTORIES_CSV, index=False
+            )
+        payload = {
+            "config": config,
+            "best_epoch": best_epoch,
+            "trained_epochs": trained_epochs,
+            "best_threshold": threshold,
+            "metrics_at_best_threshold": metrics,
+            "metrics_at_default": result["metrics_at_default"],
+            "reconstructed_checkpoint": True,
+        }
+        torch.save(state, checkpoint_pt)
+        checkpoint_json.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        export_source = "retrained from tracked experiment configuration; original weights were not archived"
 
     model = MLP(
         input_dim=data["input_dim"],
@@ -412,7 +506,7 @@ def export_best_model(data: dict[str, Any]) -> dict[str, Any]:
         dropout=config["dropout"],
         batch_norm=config["batch_norm"],
     ).to(DEVICE)
-    model.load_state_dict(torch.load(CHECKPOINTS_DIR / f"{name}.pt"))
+    model.load_state_dict(state)
     model.eval()
 
     with torch.no_grad():
@@ -421,49 +515,49 @@ def export_best_model(data: dict[str, Any]) -> dict[str, Any]:
     predictions = (proba >= threshold).astype(int)
 
     save_predictions(TUNED_MODEL_NAME, data["y_validation"], predictions, proba)
+    PARAMS_DIR.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), PARAMS_DIR / f"{TUNED_MODEL_NAME}_model.pt")
     import joblib
     joblib.dump(data["preprocessor"], PARAMS_DIR / f"{TUNED_MODEL_NAME}_preprocessor.joblib")
 
     params = dict(payload)
-    params.update(
-        {
-            "source_experiment": name,
-            "input_dim": data["input_dim"],
-            "decision_threshold": threshold,
-            "optimizer": "Adam",
-            "loss": "BCEWithLogitsLoss(pos_weight=n_negative/n_positive)",
-            "random_state": RANDOM_STATE,
-        }
+    params.update({
+        "source_experiment": name,
+        "input_dim": data["input_dim"],
+        "decision_threshold": threshold,
+        "optimizer": "Adam",
+        "loss": "BCEWithLogitsLoss(pos_weight=n_negative/n_positive)",
+        "random_state": RANDOM_STATE,
+        "export_source": export_source,
+    })
+    (PARAMS_DIR / f"{TUNED_MODEL_NAME}_params.json").write_text(
+        json.dumps(params, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    with open(
-        PARAMS_DIR / f"{TUNED_MODEL_NAME}_params.json", "w", encoding="utf-8"
-    ) as file:
-        json.dump(params, file, indent=2, sort_keys=True)
 
-    tuned = payload["metrics_at_best_threshold"]
-    metrics_df = pd.DataFrame(
-        [
-            {
-                "model": TUNED_MODEL_NAME,
-                **tuned,
-                "decision_threshold": threshold,
-                "source_experiment": name,
-                "random_state": RANDOM_STATE,
-                "evaluated_split": "validation",
-            }
-        ]
-    )
+    metrics_df = pd.DataFrame([{
+        "model": TUNED_MODEL_NAME,
+        **metrics,
+        "decision_threshold": threshold,
+        "source_experiment": name,
+        "random_state": RANDOM_STATE,
+        "evaluated_split": "validation",
+    }])
     metrics_df.to_csv(RESULTS_DIR / "mlp_tuned_metrics.csv", index=False)
 
-    histories = pd.read_csv(HISTORIES_CSV)
-    histories.loc[histories["experiment"] == name].to_csv(
-        RESULTS_DIR / "tuning_best_history.csv", index=False
-    )
+    if history is not None:
+        pd.DataFrame(history).assign(experiment=name).to_csv(
+            RESULTS_DIR / "tuning_best_history.csv", index=False
+        )
+    elif HISTORIES_CSV.exists():
+        histories = pd.read_csv(HISTORIES_CSV)
+        histories.loc[histories["experiment"] == name].to_csv(
+            RESULTS_DIR / "tuning_best_history.csv", index=False
+        )
 
     print(f"\nBest experiment: {name} (threshold {threshold:.2f})")
+    print(f"Export source: {export_source}")
     print(metrics_df.to_string(index=False))
-    return {"experiment": name, "threshold": threshold}
+    return {"experiment": name, "threshold": threshold, "export_source": export_source}
 
 
 def main() -> None:

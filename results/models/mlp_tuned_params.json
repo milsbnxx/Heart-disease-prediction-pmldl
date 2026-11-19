@@ -12,26 +12,29 @@
     ],
     "learning_rate": 0.001,
     "max_epochs": 30,
+    "pos_weight": null,
     "scheduler": null,
+    "seed": 42,
     "selection_metric": "f1",
     "weight_decay": 0.0
   },
   "decision_threshold": 0.7,
+  "export_source": "saved tuning checkpoint",
   "input_dim": 54,
   "loss": "BCEWithLogitsLoss(pos_weight=n_negative/n_positive)",
   "metrics_at_best_threshold": {
-    "accuracy": 0.8539560925298364,
-    "f1": 0.4090150250417362,
-    "precision": 0.32914307648018426,
-    "recall": 0.5400724295386553,
-    "roc_auc": 0.8375691015283111
+    "accuracy": 0.8538971563282747,
+    "f1": 0.4093400047653086,
+    "precision": 0.32921337549104146,
+    "recall": 0.541017162651551,
+    "roc_auc": 0.8377184640295147
   },
   "metrics_at_default": {
-    "accuracy": 0.7426108737291881,
-    "f1": 0.3617697563114245,
-    "precision": 0.23553758325404378,
-    "recall": 0.7795622736576917,
-    "roc_auc": 0.8375691015283111
+    "accuracy": 0.741859437159275,
+    "f1": 0.36225975538730343,
+    "precision": 0.23559490554424506,
+    "recall": 0.78349866162809,
+    "roc_auc": 0.8377184640295147
   },
   "optimizer": "Adam",
   "random_state": 42,

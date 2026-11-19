@@ -438,9 +438,19 @@ def report_path():
 
 
 def verify_manifest(manifest):
+    """Verify the exact sources and frozen outputs used by this evaluation."""
     for relative, expected in manifest['sources_sha256'].items():
-        if sha256(ROOT / relative) != expected:
-            raise ValueError(f'Source changed since protocol freeze: {relative}')
+        path = ROOT / relative
+        if not path.is_file():
+            raise FileNotFoundError(f'Manifest source is missing: {relative}')
+        actual = sha256(path)
+        if actual != expected:
+            raise ValueError(
+                f'Source integrity check failed for {relative}. The file differs from '
+                'the version used when predictions were frozen. Do not update the '
+                'manifest by hand; rerun the full pipeline into a new --output-dir '
+                'to create a consistent evaluation snapshot.'
+            )
     modern = manifest.get('artifacts_relative_to') == 'output_dir'
     base = OUT if modern else ROOT
     for relative, expected in manifest['artifacts_sha256'].items():
@@ -448,8 +458,14 @@ def verify_manifest(manifest):
         model_prefix = 'models/' if modern else 'results/evaluation/models/'
         if relative.startswith(model_prefix) and not path.exists():
             continue  # Serialized pipelines are optional for analysis of frozen CSVs.
+        if not path.is_file():
+            raise FileNotFoundError(f'Frozen evaluation artifact is missing: {path}')
         if sha256(path) != expected:
-            raise ValueError(f'Artifact changed since protocol freeze: {relative}')
+            raise ValueError(
+                f'Frozen artifact integrity check failed for {relative}. '
+                'Restore the original artifact or create a new evaluation snapshot; '
+                'do not modify the frozen manifest manually.'
+            )
 
 
 def write_analysis_manifest(repeats, seed):

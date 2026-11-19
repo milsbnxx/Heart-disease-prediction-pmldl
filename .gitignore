@@ -46,3 +46,18 @@ results/evaluation_runs/
 .idea/
 .vscode/
 *.swp
+# Local trained model artifacts (do not upload)
+results/models/mlp_model.pt
+results/models/mlp_tuned_model.pt
+results/models/mlp_preprocessor.joblib
+results/models/mlp_tuned_preprocessor.joblib
+
+# Local project archive
+project.zip
+
+# Temporary model backups and local trained weights
+temp_model_backup/
+*.pt
+*.pth
+*.joblib
+results/mlp_history.csv

@@ -1,0 +1,8 @@
+# Dependencies required to regenerate Stage 5 evaluation tables and figures.
+# Keep versions aligned with requirements.txt for consistent metric calculation.
+numpy==2.3.1
+pandas==2.3.0
+scipy==1.17.0
+scikit-learn==1.8.0
+matplotlib==3.10.8
+joblib==1.5.3

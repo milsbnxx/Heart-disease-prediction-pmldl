@@ -48,7 +48,7 @@ def prediction_frame(y, p, threshold):
 def main():
     global OUT, ARTIFACTS, PREDICTIONS
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output-dir', type=Path, default=OUT,
+    parser.add_argument('--output-dir', type=Path, default=ROOT / 'results/evaluation_runs/reproduction',
                         help='New directory for a separate frozen evaluation (relative to cwd).')
     args = parser.parse_args()
     OUT = args.output_dir.resolve()
@@ -56,8 +56,32 @@ def main():
     for directory in (OUT, ARTIFACTS, PREDICTIONS):
         directory.mkdir(parents=True, exist_ok=True)
     if (OUT / 'manifest.json').exists():
-        raise RuntimeError('Evaluation already frozen. Use evaluation.py to regenerate analysis. '
-                           'For a new experiment use a separate output directory/version.')
+        raise RuntimeError(
+            f'Evaluation is already frozen in {OUT}. Choose a new --output-dir; '
+            'frozen predictions are never overwritten.'
+        )
+
+    required = []
+    for model_name in MODELS:
+        params = ROOT / 'results/models' / f'{model_name}_params.json'
+        if not params.is_file():
+            required.append(str(params.relative_to(ROOT)))
+        if model_name in {'mlp', 'mlp_tuned'}:
+            weights = ROOT / 'results/models' / f'{model_name}_model.pt'
+            if not weights.is_file():
+                required.append(str(weights.relative_to(ROOT)))
+        else:
+            legacy_predictions = ROOT / 'results/predictions' / f'{model_name}_validation.csv'
+            if not legacy_predictions.is_file():
+                required.append(str(legacy_predictions.relative_to(ROOT)))
+    if required:
+        details = '\n  - '.join(required)
+        raise FileNotFoundError(
+            'Cannot freeze a new evaluation because required model artifacts are missing:\n'
+            f'  - {details}\n'
+            'Train the baselines and MLP, run tuning, then export the tuned model before '
+            'running predict_test.py.'
+        )
     torch.set_num_threads(4)
     X_train, y_train, X_val, y_val = load_train_validation()
     preprocessor = fit_preprocessor(X_train)
@@ -115,11 +139,22 @@ def main():
                 raise ValueError(f'{name}: reconstructed preprocessing/weights fail validation replay')
         validate_predictions(prediction_frame(y_val, probability, 0.5), y_val)
         delta = np.abs(probability - old.y_proba.to_numpy())
-        audit.append({'model': name, 'source': source,
-                      'validation_max_probability_difference': float(delta.max()),
-                      'validation_mean_probability_difference': float(delta.mean()),
-                      'matches_legacy_at_2e-5': bool(np.allclose(probability, old.y_proba, atol=2e-5, rtol=2e-5)),
-                      'legacy_label_disagreements_at_0.5': int((old.y_pred != (old.y_proba >= 0.5)).sum())})
+
+        replay_label_disagreements = int(
+            ((old.y_proba.to_numpy() >= 0.5) != (probability >= 0.5)).sum()
+        )
+
+        audit.append({
+            'model': name,
+            'source': source,
+            'validation_max_probability_difference': float(delta.max()),
+            'validation_mean_probability_difference': float(delta.mean()),
+            'matches_legacy_at_2e-5': bool(
+                np.allclose(probability, old.y_proba, atol=2e-5, rtol=2e-5)
+            ),
+            'replay_label_disagreements_at_0.5': replay_label_disagreements,
+        })
+
         validation[name] = probability
         # Select only on the validation replay of the exact evaluated estimator.
         thresholds[name] = select_threshold(y_val.to_numpy(), probability)

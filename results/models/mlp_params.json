@@ -1,6 +1,7 @@
 {
+  "batch_norm": false,
   "batch_size": 512,
-  "best_epoch": 10,
+  "best_epoch": 11,
   "decision_threshold": 0.5,
   "dropout": 0.3,
   "early_stopping_patience": 7,
@@ -12,8 +13,12 @@
   "learning_rate": 0.001,
   "loss": "BCEWithLogitsLoss(pos_weight=n_negative/n_positive)",
   "max_epochs": 50,
-  "model_selection_metric": "f1 (validation)",
+  "model_selection_metric": "f1",
   "optimizer": "Adam",
+  "pos_weight": null,
   "random_state": 42,
-  "trained_epochs": 17
+  "scheduler": null,
+  "seed": 42,
+  "trained_epochs": 18,
+  "weight_decay": 0.0
 }
